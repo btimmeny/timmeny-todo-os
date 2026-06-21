@@ -15,6 +15,16 @@
 .env.*
 !.env.example
 
+# Python
+__pycache__/
+*.py[cod]
+.python-version
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+
 # Logs and temporary files
 *.log
 tmp/
