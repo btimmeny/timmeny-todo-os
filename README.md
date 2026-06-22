@@ -47,6 +47,7 @@ Response:
 Set these environment variables:
 
 - `MONDAY_API_TOKEN`: Monday.com API token.
+- `TIMMENY_OS_API_KEY`: optional shared API key for protected clients such as a GPT Action.
 - `TODO_BOARD_ID`: Monday.com board id for `To Do List`.
 - `TODO_GROUP_ID`: optional Monday.com group id for regular todos.
 - `GS_TODO_BOARD_ID`: Monday.com board id for `GS | Initiatives & Action Items`.
@@ -93,13 +94,13 @@ curl https://timmeny-os-production.up.railway.app/health
 Production todo test:
 
 ```bash
-curl -X POST https://timmeny-os-production.up.railway.app/todos -H "Content-Type: application/json" -d '{"title":"TEST - Railway Deploy"}'
+curl -X POST https://timmeny-os-production.up.railway.app/todos -H "Content-Type: application/json" -H "X-API-Key: $TIMMENY_OS_API_KEY" -d '{"title":"TEST - Railway Deploy"}'
 ```
 
 Production GS todo test:
 
 ```bash
-curl -X POST https://timmeny-os-production.up.railway.app/todos -H "Content-Type: application/json" -d '{"title":"TEST - GS Railway Deploy","list":"gs"}'
+curl -X POST https://timmeny-os-production.up.railway.app/todos -H "Content-Type: application/json" -H "X-API-Key: $TIMMENY_OS_API_KEY" -d '{"title":"TEST - GS Railway Deploy","list":"gs"}'
 ```
 
 ## Intent
@@ -120,6 +121,7 @@ Timmeny OS should make recurring work easier to trust and easier to improve. The
 - `requirements.txt` defines the Python dependencies.
 - `requirements-dev.txt` defines local test dependencies.
 - `railway.json` configures Railway deployment.
+- `docs/gpt-action-openapi.yaml` defines the GPT Action schema.
 - `tests/` covers the current API surface.
 - `docs/charter.md` defines the initial scope, values, and near-term direction.
 

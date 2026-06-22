@@ -15,6 +15,7 @@ def test_health_returns_ok():
 
 
 def test_create_todo_requires_monday_api_token(monkeypatch):
+    monkeypatch.delenv("TIMMENY_OS_API_KEY", raising=False)
     monkeypatch.delenv("MONDAY_API_TOKEN", raising=False)
     monkeypatch.setenv("TODO_BOARD_ID", "8962223984")
 
@@ -27,6 +28,7 @@ def test_create_todo_requires_monday_api_token(monkeypatch):
 
 
 def test_create_todo_requires_board_id(monkeypatch):
+    monkeypatch.delenv("TIMMENY_OS_API_KEY", raising=False)
     monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
     monkeypatch.delenv("TODO_BOARD_ID", raising=False)
 
@@ -61,6 +63,7 @@ def test_create_todo_creates_monday_item(monkeypatch):
             )
 
     monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
+    monkeypatch.delenv("TIMMENY_OS_API_KEY", raising=False)
     monkeypatch.setenv("TODO_BOARD_ID", "8962223984")
     monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -118,6 +121,7 @@ def test_create_todo_handles_monday_graphql_errors(monkeypatch):
             )
 
     monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
+    monkeypatch.delenv("TIMMENY_OS_API_KEY", raising=False)
     monkeypatch.setenv("TODO_BOARD_ID", "bad-board")
     monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -155,6 +159,7 @@ def test_create_todo_can_target_gs_list(monkeypatch):
             )
 
     monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
+    monkeypatch.delenv("TIMMENY_OS_API_KEY", raising=False)
     monkeypatch.setenv("GS_TODO_BOARD_ID", "111222333")
     monkeypatch.setenv("GS_TODO_GROUP_ID", "topics")
     monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
@@ -180,6 +185,7 @@ def test_create_todo_can_target_gs_list(monkeypatch):
 
 def test_create_todo_requires_gs_board_id(monkeypatch):
     monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
+    monkeypatch.delenv("TIMMENY_OS_API_KEY", raising=False)
     monkeypatch.delenv("GS_TODO_BOARD_ID", raising=False)
 
     response = client.post(
@@ -191,3 +197,51 @@ def test_create_todo_requires_gs_board_id(monkeypatch):
     assert response.json() == {
         "detail": "GS_TODO_BOARD_ID environment variable is not configured."
     }
+
+
+def test_create_todo_accepts_configured_api_key(monkeypatch):
+    requests = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, url, json, headers):
+            requests.append(json)
+            request = httpx.Request("POST", url)
+            return httpx.Response(
+                200,
+                json={"data": {"create_item": {"id": "12331184432"}}},
+                request=request,
+            )
+
+    monkeypatch.setenv("TIMMENY_OS_API_KEY", "app-key")
+    monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
+    monkeypatch.setenv("TODO_BOARD_ID", "8962223984")
+    monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = client.post(
+        "/todos",
+        json={"title": "Protected todo"},
+        headers={"X-API-Key": "app-key"},
+    )
+
+    assert response.status_code == 200
+    assert requests[0]["variables"]["item_name"] == "Protected todo"
+
+
+def test_create_todo_rejects_missing_api_key_when_configured(monkeypatch):
+    monkeypatch.setenv("TIMMENY_OS_API_KEY", "app-key")
+    monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
+    monkeypatch.setenv("TODO_BOARD_ID", "8962223984")
+
+    response = client.post("/todos", json={"title": "Protected todo"})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid or missing API key."}

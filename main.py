@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -47,7 +47,12 @@ async def health() -> HealthResponse:
 
 
 @app.post("/todos", response_model=TodoCreateResponse)
-async def create_todo(payload: TodoCreateRequest) -> TodoCreateResponse:
+async def create_todo(
+    payload: TodoCreateRequest,
+    x_api_key: str | None = Header(default=None),
+) -> TodoCreateResponse:
+    verify_api_key(x_api_key)
+
     monday_token = os.getenv("MONDAY_API_TOKEN")
 
     if not monday_token:
@@ -71,6 +76,18 @@ async def create_todo(payload: TodoCreateRequest) -> TodoCreateResponse:
         title=payload.title,
         list=payload.list,
     )
+
+
+def verify_api_key(provided_api_key: str | None) -> None:
+    expected_api_key = os.getenv("TIMMENY_OS_API_KEY")
+    if not expected_api_key:
+        return
+
+    if provided_api_key != expected_api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API key.",
+        )
 
 
 def get_todo_target(todo_list: TodoList) -> dict[str, str | None]:

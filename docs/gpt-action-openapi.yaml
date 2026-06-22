@@ -1,0 +1,77 @@
+openapi: 3.1.0
+info:
+  title: Timmeny OS API
+  version: 0.1.0
+  description: Add todo items to the configured Timmeny OS Monday.com boards.
+servers:
+  - url: https://timmeny-os-production.up.railway.app
+paths:
+  /todos:
+    post:
+      operationId: createTodo
+      summary: Create a todo item
+      description: Creates a todo item in either the regular To Do List board or the GS Initiatives & Action Items board.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - title
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                  description: The name of the todo item to create.
+                list:
+                  type: string
+                  enum:
+                    - todo
+                    - gs
+                  default: todo
+                  description: Use todo for the regular To Do List board and gs for GS Initiatives & Action Items.
+      responses:
+        "200":
+          description: Todo item created successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - item_id
+                  - title
+                  - list
+                properties:
+                  success:
+                    type: boolean
+                  item_id:
+                    type: string
+                  title:
+                    type: string
+                  list:
+                    type: string
+                    enum:
+                      - todo
+                      - gs
+        "401":
+          description: Missing or invalid API key.
+        "422":
+          description: Invalid request body.
+        "500":
+          description: Missing server configuration.
+        "502":
+          description: Monday.com request failed.
+        "504":
+          description: Monday.com request timed out.
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
