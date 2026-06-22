@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 MONDAY_API_URL = "https://api.monday.com/v2"
 
-app = FastAPI(title="timmeny-os", version="0.1.0")
+app = FastAPI(title="Timmeny-ToDo-OS", version="0.1.0")
 
 
 class TodoList(StrEnum):

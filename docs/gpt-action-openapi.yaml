@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
-  title: Timmeny OS API
+  title: Timmeny-ToDo-OS API
   version: 0.1.0
-  description: Add todo items to the configured Timmeny OS Monday.com boards.
+  description: Add todo items to the configured Timmeny-ToDo-OS Monday.com boards.
 servers:
   - url: https://timmeny-os-production.up.railway.app
 paths:

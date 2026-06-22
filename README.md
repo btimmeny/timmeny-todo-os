@@ -1,8 +1,8 @@
-# timmeny-os
+# Timmeny-ToDo-OS
 
-A personal operating system for shaping work, decisions, automations, notes, and AI-assisted workflows into something coherent.
+A personal todo operating system for capturing tasks and action items into the right Monday.com boards.
 
-This repository starts as a lightweight FastAPI service plus a place to define the principles, interfaces, and routines that make the system useful before hardening more workflows.
+This repository starts as a lightweight FastAPI service for the Timmeny-ToDo-OS workflow, plus a place to define the principles, interfaces, and routines that make the system useful before hardening more todo workflows.
 
 ## API
 
@@ -103,9 +103,21 @@ Production GS todo test:
 curl -X POST https://timmeny-os-production.up.railway.app/todos -H "Content-Type: application/json" -H "X-API-Key: $TIMMENY_OS_API_KEY" -d '{"title":"TEST - GS Railway Deploy","list":"gs"}'
 ```
 
+## Naming
+
+Product/app name: `Timmeny-ToDo-OS`
+
+Current production URL:
+
+```text
+https://timmeny-os-production.up.railway.app
+```
+
+The URL can be renamed later in Railway after the service/domain rename is complete.
+
 ## Intent
 
-Timmeny OS should make recurring work easier to trust and easier to improve. The system should favor durable structure over clever one-offs, clear records over mystery state, and small useful loops over sprawling machinery.
+Timmeny-ToDo-OS should make task capture easy to trust and easy to improve. The system should favor durable structure over clever one-offs, clear records over mystery state, and small useful loops over sprawling machinery.
 
 ## Principles
 

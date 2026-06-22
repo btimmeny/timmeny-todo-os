@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Timmeny OS is a personal operating system: a practical layer for managing context, decisions, automations, and assisted work across daily life and long-running projects.
+Timmeny-ToDo-OS is a personal operating system for todo and action-item capture: a practical layer for routing tasks into the right Monday.com boards.
 
 The first job of this repository is to make the system explicit. Before adding complexity, it should capture the operating principles, name the workflows that matter, and define simple interfaces between people, tools, and agents.
 
