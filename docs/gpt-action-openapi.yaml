@@ -70,6 +70,7 @@ paths:
         "504":
           description: Monday.com request timed out.
 components:
+  schemas: {}
   securitySchemes:
     ApiKeyAuth:
       type: apiKey
