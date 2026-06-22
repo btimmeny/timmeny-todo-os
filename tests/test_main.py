@@ -236,6 +236,43 @@ def test_create_todo_accepts_configured_api_key(monkeypatch):
     assert requests[0]["variables"]["item_name"] == "Protected todo"
 
 
+def test_create_todo_accepts_bearer_api_key(monkeypatch):
+    requests = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, url, json, headers):
+            requests.append(json)
+            request = httpx.Request("POST", url)
+            return httpx.Response(
+                200,
+                json={"data": {"create_item": {"id": "12331184433"}}},
+                request=request,
+            )
+
+    monkeypatch.setenv("TIMMENY_OS_API_KEY", "app-key")
+    monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
+    monkeypatch.setenv("TODO_BOARD_ID", "8962223984")
+    monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = client.post(
+        "/todos",
+        json={"title": "Bearer protected todo"},
+        headers={"Authorization": "Bearer app-key"},
+    )
+
+    assert response.status_code == 200
+    assert requests[0]["variables"]["item_name"] == "Bearer protected todo"
+
+
 def test_create_todo_rejects_missing_api_key_when_configured(monkeypatch):
     monkeypatch.setenv("TIMMENY_OS_API_KEY", "app-key")
     monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")

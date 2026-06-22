@@ -73,6 +73,5 @@ components:
   schemas: {}
   securitySchemes:
     ApiKeyAuth:
-      type: apiKey
-      in: header
-      name: X-API-Key
+      type: http
+      scheme: bearer

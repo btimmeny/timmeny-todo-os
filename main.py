@@ -50,8 +50,9 @@ async def health() -> HealthResponse:
 async def create_todo(
     payload: TodoCreateRequest,
     x_api_key: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ) -> TodoCreateResponse:
-    verify_api_key(x_api_key)
+    verify_api_key(x_api_key=x_api_key, authorization=authorization)
 
     monday_token = os.getenv("MONDAY_API_TOKEN")
 
@@ -78,16 +79,32 @@ async def create_todo(
     )
 
 
-def verify_api_key(provided_api_key: str | None) -> None:
+def verify_api_key(
+    x_api_key: str | None,
+    authorization: str | None,
+) -> None:
     expected_api_key = os.getenv("TIMMENY_OS_API_KEY")
     if not expected_api_key:
         return
+
+    provided_api_key = x_api_key or extract_bearer_token(authorization)
 
     if provided_api_key != expected_api_key:
         raise HTTPException(
             status_code=401,
             detail="Invalid or missing API key.",
         )
+
+
+def extract_bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+
+    return token
 
 
 def get_todo_target(todo_list: TodoList) -> dict[str, str | None]:
