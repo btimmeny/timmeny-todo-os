@@ -42,6 +42,40 @@ Response:
 }
 ```
 
+### `GET /todos`
+
+Reads todo items from Monday.com.
+
+Query parameters:
+
+- `list`: `all`, `todo`, or `gs`. Defaults to `all`.
+- `limit`: maximum items to read from each selected board. Defaults to `25`, max `100`.
+
+Example:
+
+```bash
+curl https://timmeny-os-production.up.railway.app/todos?list=all \
+  -H "Authorization: Bearer $TIMMENY_OS_API_KEY"
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "count": 2,
+  "items": [
+    {
+      "item_id": "...",
+      "title": "follow up",
+      "list": "todo",
+      "group_id": "...",
+      "group_title": "To Do"
+    }
+  ]
+}
+```
+
 ## Configuration
 
 Set these environment variables:

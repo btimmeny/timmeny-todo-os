@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -13,6 +13,12 @@ app = FastAPI(title="Timmeny-ToDo-OS", version="0.1.0")
 
 
 class TodoList(StrEnum):
+    TODO = "todo"
+    GS = "gs"
+
+
+class TodoListFilter(StrEnum):
+    ALL = "all"
     TODO = "todo"
     GS = "gs"
 
@@ -37,6 +43,20 @@ class TodoCreateResponse(BaseModel):
     list: TodoList
 
 
+class TodoItem(BaseModel):
+    item_id: str
+    title: str
+    list: TodoList
+    group_id: str | None = None
+    group_title: str | None = None
+
+
+class TodoListResponse(BaseModel):
+    success: bool
+    count: int
+    items: list[TodoItem]
+
+
 class HealthResponse(BaseModel):
     status: str
 
@@ -44,6 +64,40 @@ class HealthResponse(BaseModel):
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     return HealthResponse(status="ok")
+
+
+@app.get("/todos", response_model=TodoListResponse)
+async def list_todos(
+    list_filter: TodoListFilter = Query(default=TodoListFilter.ALL, alias="list"),
+    limit: int = Query(default=25, ge=1, le=100),
+    x_api_key: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> TodoListResponse:
+    verify_api_key(x_api_key=x_api_key, authorization=authorization)
+
+    monday_token = get_monday_token()
+    todo_lists = get_todo_lists_for_filter(list_filter)
+    items: list[TodoItem] = []
+
+    for todo_list in todo_lists:
+        target = get_todo_target(todo_list)
+        monday_items = await get_monday_items(
+            token=monday_token,
+            board_id=target["board_id"],
+            limit=limit,
+        )
+        items.extend(
+            TodoItem(
+                item_id=item["id"],
+                title=item["name"],
+                list=todo_list,
+                group_id=get_monday_item_group(item).get("id"),
+                group_title=get_monday_item_group(item).get("title"),
+            )
+            for item in monday_items
+        )
+
+    return TodoListResponse(success=True, count=len(items), items=items)
 
 
 @app.post("/todos", response_model=TodoCreateResponse)
@@ -54,14 +108,7 @@ async def create_todo(
 ) -> TodoCreateResponse:
     verify_api_key(x_api_key=x_api_key, authorization=authorization)
 
-    monday_token = os.getenv("MONDAY_API_TOKEN")
-
-    if not monday_token:
-        raise HTTPException(
-            status_code=500,
-            detail="MONDAY_API_TOKEN environment variable is not configured.",
-        )
-
+    monday_token = get_monday_token()
     target = get_todo_target(payload.list)
 
     item_id = await create_monday_item(
@@ -77,6 +124,16 @@ async def create_todo(
         title=payload.title,
         list=payload.list,
     )
+
+
+def get_monday_token() -> str:
+    monday_token = os.getenv("MONDAY_API_TOKEN")
+    if not monday_token:
+        raise HTTPException(
+            status_code=500,
+            detail="MONDAY_API_TOKEN environment variable is not configured.",
+        )
+    return monday_token
 
 
 def verify_api_key(
@@ -107,6 +164,21 @@ def extract_bearer_token(authorization: str | None) -> str | None:
     return token
 
 
+def get_todo_lists_for_filter(list_filter: TodoListFilter) -> list[TodoList]:
+    if list_filter == TodoListFilter.TODO:
+        return [TodoList.TODO]
+    if list_filter == TodoListFilter.GS:
+        return [TodoList.GS]
+    return [TodoList.TODO, TodoList.GS]
+
+
+def get_monday_item_group(item: dict[str, Any]) -> dict[str, Any]:
+    group = item.get("group")
+    if not isinstance(group, dict):
+        return {}
+    return group
+
+
 def get_todo_target(todo_list: TodoList) -> dict[str, str | None]:
     env_prefix = "TODO" if todo_list == TodoList.TODO else "GS_TODO"
     board_id_variable = f"{env_prefix}_BOARD_ID"
@@ -125,6 +197,46 @@ def get_todo_target(todo_list: TodoList) -> dict[str, str | None]:
     }
 
 
+async def get_monday_items(token: str, board_id: str, limit: int) -> list[dict[str, Any]]:
+    query = """
+    query GetTodoItems($board_id: ID!, $limit: Int!) {
+      boards(ids: [$board_id]) {
+        items_page(limit: $limit) {
+          items {
+            id
+            name
+            group {
+              id
+              title
+            }
+          }
+        }
+      }
+    }
+    """
+
+    response_body = await execute_monday_graphql(
+        token=token,
+        body={
+            "query": query,
+            "variables": {
+                "board_id": board_id,
+                "limit": limit,
+            },
+        },
+    )
+
+    boards = response_body.get("data", {}).get("boards", [])
+    if not boards:
+        raise HTTPException(
+            status_code=502,
+            detail="Monday.com response did not include board data.",
+        )
+
+    items = boards[0].get("items_page", {}).get("items", [])
+    return items
+
+
 async def create_monday_item(
     token: str,
     board_id: str,
@@ -139,20 +251,38 @@ async def create_monday_item(
     }
     """
 
-    body = {
-        "query": query,
-        "variables": {
-            "board_id": board_id,
-            "group_id": group_id,
-            "item_name": title,
+    response_body = await execute_monday_graphql(
+        token=token,
+        body={
+            "query": query,
+            "variables": {
+                "board_id": board_id,
+                "group_id": group_id,
+                "item_name": title,
+            },
         },
-    }
+    )
 
+    item_id = (
+        response_body.get("data", {})
+        .get("create_item", {})
+        .get("id")
+    )
+
+    if not item_id:
+        raise HTTPException(
+            status_code=502,
+            detail="Monday.com response did not include a created item id.",
+        )
+
+    return str(item_id)
+
+
+async def execute_monday_graphql(token: str, body: dict[str, Any]) -> dict[str, Any]:
     headers = {
         "Authorization": token,
         "Content-Type": "application/json",
     }
-
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(MONDAY_API_URL, json=body, headers=headers)
@@ -186,21 +316,9 @@ async def create_monday_item(
         raise HTTPException(
             status_code=502,
             detail={
-                "message": "Monday.com GraphQL mutation failed.",
+                "message": "Monday.com GraphQL request failed.",
                 "errors": monday_errors,
             },
         )
 
-    item_id = (
-        response_body.get("data", {})
-        .get("create_item", {})
-        .get("id")
-    )
-
-    if not item_id:
-        raise HTTPException(
-            status_code=502,
-            detail="Monday.com response did not include a created item id.",
-        )
-
-    return str(item_id)
+    return response_body

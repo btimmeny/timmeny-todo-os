@@ -130,7 +130,7 @@ def test_create_todo_handles_monday_graphql_errors(monkeypatch):
     assert response.status_code == 502
     assert response.json() == {
         "detail": {
-            "message": "Monday.com GraphQL mutation failed.",
+            "message": "Monday.com GraphQL request failed.",
             "errors": [{"message": "Board not found"}],
         }
     }
@@ -279,6 +279,168 @@ def test_create_todo_rejects_missing_api_key_when_configured(monkeypatch):
     monkeypatch.setenv("TODO_BOARD_ID", "8962223984")
 
     response = client.post("/todos", json={"title": "Protected todo"})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid or missing API key."}
+
+
+def test_list_todos_returns_items_from_both_boards(monkeypatch):
+    requests = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, url, json, headers):
+            requests.append(json)
+            board_id = json["variables"]["board_id"]
+            request = httpx.Request("POST", url)
+            items_by_board = {
+                "todo-board": [
+                    {
+                        "id": "1",
+                        "name": "regular item",
+                        "group": {"id": "todo-group", "title": "To Do"},
+                    }
+                ],
+                "gs-board": [
+                    {
+                        "id": "2",
+                        "name": "gs item",
+                        "group": {"id": "gs-group", "title": "Action Items"},
+                    }
+                ],
+            }
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "boards": [
+                            {
+                                "items_page": {
+                                    "items": items_by_board[board_id],
+                                }
+                            }
+                        ]
+                    }
+                },
+                request=request,
+            )
+
+    monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
+    monkeypatch.delenv("TIMMENY_OS_API_KEY", raising=False)
+    monkeypatch.setenv("TODO_BOARD_ID", "todo-board")
+    monkeypatch.setenv("GS_TODO_BOARD_ID", "gs-board")
+    monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = client.get("/todos")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "count": 2,
+        "items": [
+            {
+                "item_id": "1",
+                "title": "regular item",
+                "list": "todo",
+                "group_id": "todo-group",
+                "group_title": "To Do",
+            },
+            {
+                "item_id": "2",
+                "title": "gs item",
+                "list": "gs",
+                "group_id": "gs-group",
+                "group_title": "Action Items",
+            },
+        ],
+    }
+    assert [request["variables"]["board_id"] for request in requests] == [
+        "todo-board",
+        "gs-board",
+    ]
+    assert [request["variables"]["limit"] for request in requests] == [25, 25]
+
+
+def test_list_todos_can_filter_to_gs(monkeypatch):
+    requests = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, url, json, headers):
+            requests.append(json)
+            request = httpx.Request("POST", url)
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "boards": [
+                            {
+                                "items_page": {
+                                    "items": [
+                                        {
+                                            "id": "2",
+                                            "name": "gs item",
+                                            "group": None,
+                                        }
+                                    ],
+                                }
+                            }
+                        ]
+                    }
+                },
+                request=request,
+            )
+
+    monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
+    monkeypatch.delenv("TIMMENY_OS_API_KEY", raising=False)
+    monkeypatch.setenv("GS_TODO_BOARD_ID", "gs-board")
+    monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = client.get("/todos?list=gs&limit=10")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "count": 1,
+        "items": [
+            {
+                "item_id": "2",
+                "title": "gs item",
+                "list": "gs",
+                "group_id": None,
+                "group_title": None,
+            }
+        ],
+    }
+    assert len(requests) == 1
+    assert requests[0]["variables"] == {
+        "board_id": "gs-board",
+        "limit": 10,
+    }
+
+
+def test_list_todos_requires_api_key_when_configured(monkeypatch):
+    monkeypatch.setenv("TIMMENY_OS_API_KEY", "app-key")
+    monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
+    monkeypatch.setenv("TODO_BOARD_ID", "todo-board")
+
+    response = client.get("/todos")
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Invalid or missing API key."}
