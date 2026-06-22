@@ -118,7 +118,7 @@ The organize workflow also expects these Monday.com columns on each board:
 
 - `Action Group`: text column for GPT-selected themes.
 - `Action Date`: date column for decision/action timing.
-- `Action`: dropdown column for labels such as `Decision`.
+- `Action`: dropdown or status column for labels such as `Decision`.
 
 Use `.env.example` as the local template.
 

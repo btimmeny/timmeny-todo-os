@@ -465,6 +465,64 @@ def test_update_todo_action_metadata(monkeypatch):
     }
 
 
+def test_update_todo_action_metadata_supports_status_action_column(monkeypatch):
+    requests = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, url, json, headers):
+            requests.append(json)
+            request = httpx.Request("POST", url)
+            if "GetBoardColumns" in json["query"]:
+                return httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "boards": [
+                                {
+                                    "columns": [
+                                        {
+                                            "id": "status_mkp",
+                                            "title": "Action",
+                                            "type": "status",
+                                        },
+                                    ]
+                                }
+                            ]
+                        }
+                    },
+                    request=request,
+                )
+            return httpx.Response(
+                200,
+                json={"data": {"change_multiple_column_values": {"id": "existing-1"}}},
+                request=request,
+            )
+
+    monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
+    monkeypatch.delenv("TIMMENY_OS_API_KEY", raising=False)
+    monkeypatch.setenv("TODO_BOARD_ID", "todo-board")
+    monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = client.patch(
+        "/todos/existing-1/action-metadata",
+        json={"list": "todo", "action": "Decision"},
+    )
+
+    assert response.status_code == 200
+    assert json.loads(requests[1]["variables"]["column_values"]) == {
+        "status_mkp": {"label": "Decision"},
+    }
+
+
 def test_update_todo_action_metadata_requires_known_column(monkeypatch):
     class FakeAsyncClient:
         def __init__(self, timeout):

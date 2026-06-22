@@ -491,9 +491,15 @@ async def build_action_column_values(
 
     if action is not None:
         column = require_board_column(columns_by_title, ACTION_COLUMN_TITLE)
-        column_values[column["id"]] = {"labels": [action]}
+        column_values[column["id"]] = build_action_column_value(column, action)
 
     return column_values
+
+
+def build_action_column_value(column: dict[str, Any], action: str) -> dict[str, Any]:
+    if column.get("type") == "status":
+        return {"label": action}
+    return {"labels": [action]}
 
 
 async def get_board_columns_by_title(
