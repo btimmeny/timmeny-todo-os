@@ -25,11 +25,15 @@ Request:
 ```json
 {
   "title": "TEST - Railway",
-  "list": "todo"
+  "list": "todo",
+  "action_group": "Launch",
+  "action_date": "2026-06-21",
+  "action": "Decision"
 }
 ```
 
 `list` is optional and defaults to `todo`. Use `gs` to create the item in the GS todo target.
+`action_group`, `action_date`, and `action` are optional Monday.com column values.
 
 Response:
 
@@ -38,7 +42,10 @@ Response:
   "success": true,
   "item_id": "...",
   "title": "TEST - Railway",
-  "list": "todo"
+  "list": "todo",
+  "action_group": "Launch",
+  "action_date": "2026-06-21",
+  "action": "Decision"
 }
 ```
 
@@ -70,11 +77,31 @@ Response:
       "title": "follow up",
       "list": "todo",
       "group_id": "...",
-      "group_title": "To Do"
+      "group_title": "To Do",
+      "action_group": "Launch",
+      "action_date": "2026-06-21",
+      "action": "Decision"
     }
   ]
 }
 ```
+
+### `PATCH /todos/{item_id}/action-metadata`
+
+Updates the Monday.com action metadata columns for an existing todo item.
+
+Request:
+
+```json
+{
+  "list": "gs",
+  "action_group": "Partnerships",
+  "action_date": "2026-06-21",
+  "action": "Decision"
+}
+```
+
+At least one of `action_group`, `action_date`, or `action` is required. The board must have columns named exactly `Action Group`, `Action Date`, and `Action` when those values are used.
 
 ## Configuration
 
@@ -86,6 +113,12 @@ Set these environment variables:
 - `TODO_GROUP_ID`: optional Monday.com group id for regular todos.
 - `GS_TODO_BOARD_ID`: Monday.com board id for `GS | Initiatives & Action Items`.
 - `GS_TODO_GROUP_ID`: optional Monday.com group id for GS todos.
+
+The organize workflow also expects these Monday.com columns on each board:
+
+- `Action Group`: text column for GPT-selected themes.
+- `Action Date`: date column for decision/action timing.
+- `Action`: dropdown column for labels such as `Decision`.
 
 Use `.env.example` as the local template.
 
@@ -135,6 +168,12 @@ Production GS todo test:
 
 ```bash
 curl -X POST https://timmeny-os-production.up.railway.app/todos -H "Content-Type: application/json" -H "X-API-Key: $TIMMENY_OS_API_KEY" -d '{"title":"TEST - GS Railway Deploy","list":"gs"}'
+```
+
+Production decision todo test:
+
+```bash
+curl -X POST https://timmeny-os-production.up.railway.app/todos -H "Content-Type: application/json" -H "Authorization: Bearer $TIMMENY_OS_API_KEY" -d '{"title":"Decide launch owner","list":"todo","action_group":"Launch","action_date":"2026-06-21","action":"Decision"}'
 ```
 
 ## Naming

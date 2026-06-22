@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Timmeny-ToDo-OS API
-  version: 0.1.0
-  description: Add todo items to the configured Timmeny-ToDo-OS Monday.com boards.
+  version: 0.2.0
+  description: Create, read, and organize todo items on the configured Timmeny-ToDo-OS Monday.com boards.
 servers:
   - url: https://timmeny-os-production.up.railway.app
 paths:
@@ -10,7 +10,7 @@ paths:
     get:
       operationId: listTodos
       summary: List todo items
-      description: Lists todo items from the regular To Do List board, the GS Initiatives & Action Items board, or both.
+      description: Lists todo items from the regular To Do List board, the GS Initiatives & Action Items board, or both, including Action Group, Action Date, and Action metadata when present.
       security:
         - ApiKeyAuth: []
       parameters:
@@ -40,42 +40,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - success
-                  - count
-                  - items
-                properties:
-                  success:
-                    type: boolean
-                  count:
-                    type: integer
-                  items:
-                    type: array
-                    items:
-                      type: object
-                      required:
-                        - item_id
-                        - title
-                        - list
-                      properties:
-                        item_id:
-                          type: string
-                        title:
-                          type: string
-                        list:
-                          type: string
-                          enum:
-                            - todo
-                            - gs
-                        group_id:
-                          type:
-                            - string
-                            - "null"
-                        group_title:
-                          type:
-                            - string
-                            - "null"
+                $ref: "#/components/schemas/TodoListResponse"
         "401":
           description: Missing or invalid API key.
         "422":
@@ -89,7 +54,7 @@ paths:
     post:
       operationId: createTodo
       summary: Create a todo item
-      description: Creates a todo item in either the regular To Do List board or the GS Initiatives & Action Items board.
+      description: Creates a todo item in either the regular To Do List board or the GS Initiatives & Action Items board. Optional action metadata can set Action Group, Action Date, and Action at creation time.
       security:
         - ApiKeyAuth: []
       requestBody:
@@ -97,47 +62,51 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: false
-              required:
-                - title
-              properties:
-                title:
-                  type: string
-                  minLength: 1
-                  maxLength: 255
-                  description: The name of the todo item to create.
-                list:
-                  type: string
-                  enum:
-                    - todo
-                    - gs
-                  default: todo
-                  description: Use todo for the regular To Do List board and gs for GS Initiatives & Action Items.
+              $ref: "#/components/schemas/TodoCreateRequest"
       responses:
         "200":
           description: Todo item created successfully.
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - success
-                  - item_id
-                  - title
-                  - list
-                properties:
-                  success:
-                    type: boolean
-                  item_id:
-                    type: string
-                  title:
-                    type: string
-                  list:
-                    type: string
-                    enum:
-                      - todo
-                      - gs
+                $ref: "#/components/schemas/TodoCreateResponse"
+        "401":
+          description: Missing or invalid API key.
+        "422":
+          description: Invalid request body.
+        "500":
+          description: Missing server configuration.
+        "502":
+          description: Monday.com request failed.
+        "504":
+          description: Monday.com request timed out.
+  /todos/{item_id}/action-metadata:
+    patch:
+      operationId: updateTodoActionMetadata
+      summary: Update todo action metadata
+      description: Updates the Action Group, Action Date, and/or Action columns for an existing todo item. Use this after reviewing todos and choosing better thematic groupings or identifying missing decisions.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Monday.com item id to update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TodoUpdateActionMetadataRequest"
+      responses:
+        "200":
+          description: Todo action metadata updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodoUpdateActionMetadataResponse"
         "401":
           description: Missing or invalid API key.
         "422":
@@ -149,7 +118,197 @@ paths:
         "504":
           description: Monday.com request timed out.
 components:
-  schemas: {}
+  schemas:
+    TodoListName:
+      type: string
+      enum:
+        - todo
+        - gs
+      description: Use todo for the regular To Do List board and gs for GS Initiatives & Action Items.
+    TodoActionMetadata:
+      type: object
+      additionalProperties: false
+      properties:
+        action_group:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+          description: The thematic grouping to write into the Monday.com Action Group text column.
+        action_date:
+          type:
+            - string
+            - "null"
+          format: date
+          description: The date to write into the Monday.com Action Date column, formatted YYYY-MM-DD.
+        action:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+          description: The action type label to write into the Monday.com Action dropdown column, such as Decision.
+    TodoCreateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: The name of the todo item to create.
+        list:
+          $ref: "#/components/schemas/TodoListName"
+          default: todo
+        action_group:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+        action_date:
+          type:
+            - string
+            - "null"
+          format: date
+        action:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+    TodoCreateResponse:
+      type: object
+      required:
+        - success
+        - item_id
+        - title
+        - list
+      properties:
+        success:
+          type: boolean
+        item_id:
+          type: string
+        title:
+          type: string
+        list:
+          $ref: "#/components/schemas/TodoListName"
+        action_group:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+        action_date:
+          type:
+            - string
+            - "null"
+          format: date
+        action:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+    TodoUpdateActionMetadataRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - list
+      properties:
+        list:
+          $ref: "#/components/schemas/TodoListName"
+        action_group:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+        action_date:
+          type:
+            - string
+            - "null"
+          format: date
+        action:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+    TodoUpdateActionMetadataResponse:
+      type: object
+      required:
+        - success
+        - item_id
+        - list
+      properties:
+        success:
+          type: boolean
+        item_id:
+          type: string
+        list:
+          $ref: "#/components/schemas/TodoListName"
+        action_group:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+        action_date:
+          type:
+            - string
+            - "null"
+          format: date
+        action:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+    TodoItem:
+      type: object
+      required:
+        - item_id
+        - title
+        - list
+      properties:
+        item_id:
+          type: string
+        title:
+          type: string
+        list:
+          $ref: "#/components/schemas/TodoListName"
+        group_id:
+          type:
+            - string
+            - "null"
+        group_title:
+          type:
+            - string
+            - "null"
+        action_group:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+        action_date:
+          type:
+            - string
+            - "null"
+          format: date
+        action:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+    TodoListResponse:
+      type: object
+      required:
+        - success
+        - count
+        - items
+      properties:
+        success:
+          type: boolean
+        count:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TodoItem"
   securitySchemes:
     ApiKeyAuth:
       type: http

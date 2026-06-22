@@ -1,3 +1,5 @@
+import json
+
 import httpx
 from fastapi.testclient import TestClient
 
@@ -75,14 +77,17 @@ def test_create_todo_creates_monday_item(monkeypatch):
         "item_id": "12331184429",
         "title": "TEST - Railway Deploy",
         "list": "todo",
+        "action_group": None,
+        "action_date": None,
+        "action": None,
     }
     assert requests == [
         {
             "url": main.MONDAY_API_URL,
             "json": {
                 "query": """
-    mutation CreateTodo($board_id: ID!, $group_id: String, $item_name: String!) {
-      create_item(board_id: $board_id, group_id: $group_id, item_name: $item_name) {
+    mutation CreateTodo($board_id: ID!, $group_id: String, $item_name: String!, $column_values: JSON) {
+      create_item(board_id: $board_id, group_id: $group_id, item_name: $item_name, column_values: $column_values) {
         id
       }
     }
@@ -91,6 +96,7 @@ def test_create_todo_creates_monday_item(monkeypatch):
                     "board_id": "8962223984",
                     "group_id": None,
                     "item_name": "TEST - Railway Deploy",
+                    "column_values": None,
                 },
             },
             "headers": {
@@ -175,11 +181,15 @@ def test_create_todo_can_target_gs_list(monkeypatch):
         "item_id": "12331184430",
         "title": "GS follow-up",
         "list": "gs",
+        "action_group": None,
+        "action_date": None,
+        "action": None,
     }
     assert requests[0]["variables"] == {
         "board_id": "111222333",
         "group_id": "topics",
         "item_name": "GS follow-up",
+        "column_values": None,
     }
 
 
@@ -284,6 +294,226 @@ def test_create_todo_rejects_missing_api_key_when_configured(monkeypatch):
     assert response.json() == {"detail": "Invalid or missing API key."}
 
 
+def test_create_todo_can_set_action_metadata(monkeypatch):
+    requests = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, url, json, headers):
+            requests.append(json)
+            request = httpx.Request("POST", url)
+            if "GetBoardColumns" in json["query"]:
+                return httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "boards": [
+                                {
+                                    "columns": [
+                                        {
+                                            "id": "text_mkp",
+                                            "title": "Action Group",
+                                            "type": "text",
+                                        },
+                                        {
+                                            "id": "date_mkp",
+                                            "title": "Action Date",
+                                            "type": "date",
+                                        },
+                                        {
+                                            "id": "dropdown_mkp",
+                                            "title": "Action",
+                                            "type": "dropdown",
+                                        },
+                                    ]
+                                }
+                            ]
+                        }
+                    },
+                    request=request,
+                )
+            return httpx.Response(
+                200,
+                json={"data": {"create_item": {"id": "12331184434"}}},
+                request=request,
+            )
+
+    monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
+    monkeypatch.delenv("TIMMENY_OS_API_KEY", raising=False)
+    monkeypatch.setenv("TODO_BOARD_ID", "todo-board")
+    monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = client.post(
+        "/todos",
+        json={
+            "title": "Clarify launch owner",
+            "list": "todo",
+            "action_group": "Launch",
+            "action_date": "2026-06-21",
+            "action": "Decision",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "item_id": "12331184434",
+        "title": "Clarify launch owner",
+        "list": "todo",
+        "action_group": "Launch",
+        "action_date": "2026-06-21",
+        "action": "Decision",
+    }
+    assert requests[0]["variables"] == {"board_id": "todo-board"}
+    assert json.loads(requests[1]["variables"]["column_values"]) == {
+        "text_mkp": "Launch",
+        "date_mkp": {"date": "2026-06-21"},
+        "dropdown_mkp": {"labels": ["Decision"]},
+    }
+
+
+def test_update_todo_action_metadata(monkeypatch):
+    requests = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, url, json, headers):
+            requests.append(json)
+            request = httpx.Request("POST", url)
+            if "GetBoardColumns" in json["query"]:
+                return httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "boards": [
+                                {
+                                    "columns": [
+                                        {
+                                            "id": "text_mkp",
+                                            "title": "Action Group",
+                                            "type": "text",
+                                        },
+                                        {
+                                            "id": "date_mkp",
+                                            "title": "Action Date",
+                                            "type": "date",
+                                        },
+                                        {
+                                            "id": "dropdown_mkp",
+                                            "title": "Action",
+                                            "type": "dropdown",
+                                        },
+                                    ]
+                                }
+                            ]
+                        }
+                    },
+                    request=request,
+                )
+            return httpx.Response(
+                200,
+                json={"data": {"change_multiple_column_values": {"id": "existing-1"}}},
+                request=request,
+            )
+
+    monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
+    monkeypatch.delenv("TIMMENY_OS_API_KEY", raising=False)
+    monkeypatch.setenv("GS_TODO_BOARD_ID", "gs-board")
+    monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = client.patch(
+        "/todos/existing-1/action-metadata",
+        json={
+            "list": "gs",
+            "action_group": "Partnerships",
+            "action_date": "2026-06-21",
+            "action": "Decision",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "item_id": "existing-1",
+        "list": "gs",
+        "action_group": "Partnerships",
+        "action_date": "2026-06-21",
+        "action": "Decision",
+    }
+    assert requests[1]["variables"]["board_id"] == "gs-board"
+    assert requests[1]["variables"]["item_id"] == "existing-1"
+    assert json.loads(requests[1]["variables"]["column_values"]) == {
+        "text_mkp": "Partnerships",
+        "date_mkp": {"date": "2026-06-21"},
+        "dropdown_mkp": {"labels": ["Decision"]},
+    }
+
+
+def test_update_todo_action_metadata_requires_known_column(monkeypatch):
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, url, json, headers):
+            request = httpx.Request("POST", url)
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "boards": [
+                            {
+                                "columns": [
+                                    {
+                                        "id": "text_mkp",
+                                        "title": "Action Group",
+                                        "type": "text",
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                },
+                request=request,
+            )
+
+    monkeypatch.setenv("MONDAY_API_TOKEN", "test-token")
+    monkeypatch.delenv("TIMMENY_OS_API_KEY", raising=False)
+    monkeypatch.setenv("TODO_BOARD_ID", "todo-board")
+    monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = client.patch(
+        "/todos/existing-1/action-metadata",
+        json={"list": "todo", "action": "Decision"},
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": 'Monday.com board is missing the "Action" column.'
+    }
+
+
 def test_list_todos_returns_items_from_both_boards(monkeypatch):
     requests = []
 
@@ -307,6 +537,26 @@ def test_list_todos_returns_items_from_both_boards(monkeypatch):
                         "id": "1",
                         "name": "regular item",
                         "group": {"id": "todo-group", "title": "To Do"},
+                        "column_values": [
+                            {
+                                "id": "text_mkp",
+                                "text": "Launch",
+                                "value": None,
+                                "column": {"title": "Action Group"},
+                            },
+                            {
+                                "id": "date_mkp",
+                                "text": "2026-06-21",
+                                "value": None,
+                                "column": {"title": "Action Date"},
+                            },
+                            {
+                                "id": "dropdown_mkp",
+                                "text": "Decision",
+                                "value": None,
+                                "column": {"title": "Action"},
+                            },
+                        ],
                     }
                 ],
                 "gs-board": [
@@ -314,6 +564,7 @@ def test_list_todos_returns_items_from_both_boards(monkeypatch):
                         "id": "2",
                         "name": "gs item",
                         "group": {"id": "gs-group", "title": "Action Items"},
+                        "column_values": [],
                     }
                 ],
             }
@@ -352,6 +603,9 @@ def test_list_todos_returns_items_from_both_boards(monkeypatch):
                 "list": "todo",
                 "group_id": "todo-group",
                 "group_title": "To Do",
+                "action_group": "Launch",
+                "action_date": "2026-06-21",
+                "action": "Decision",
             },
             {
                 "item_id": "2",
@@ -359,6 +613,9 @@ def test_list_todos_returns_items_from_both_boards(monkeypatch):
                 "list": "gs",
                 "group_id": "gs-group",
                 "group_title": "Action Items",
+                "action_group": None,
+                "action_date": None,
+                "action": None,
             },
         ],
     }
@@ -397,6 +654,7 @@ def test_list_todos_can_filter_to_gs(monkeypatch):
                                             "id": "2",
                                             "name": "gs item",
                                             "group": None,
+                                            "column_values": [],
                                         }
                                     ],
                                 }
@@ -425,6 +683,9 @@ def test_list_todos_can_filter_to_gs(monkeypatch):
                 "list": "gs",
                 "group_id": None,
                 "group_title": None,
+                "action_group": None,
+                "action_date": None,
+                "action": None,
             }
         ],
     }

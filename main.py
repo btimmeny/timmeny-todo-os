@@ -1,4 +1,6 @@
+import json
 import os
+from datetime import date
 from enum import StrEnum
 from typing import Any
 
@@ -8,6 +10,9 @@ from pydantic import BaseModel, Field, field_validator
 
 
 MONDAY_API_URL = "https://api.monday.com/v2"
+ACTION_GROUP_COLUMN_TITLE = "Action Group"
+ACTION_DATE_COLUMN_TITLE = "Action Date"
+ACTION_COLUMN_TITLE = "Action"
 
 app = FastAPI(title="Timmeny-ToDo-OS", version="0.1.0")
 
@@ -23,7 +28,21 @@ class TodoListFilter(StrEnum):
     GS = "gs"
 
 
-class TodoCreateRequest(BaseModel):
+class TodoActionMetadata(BaseModel):
+    action_group: str | None = Field(default=None, max_length=255)
+    action_date: date | None = None
+    action: str | None = Field(default=None, max_length=255)
+
+    @field_validator("action_group", "action")
+    @classmethod
+    def optional_strings_must_not_be_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped_value = value.strip()
+        return stripped_value or None
+
+
+class TodoCreateRequest(TodoActionMetadata):
     title: str = Field(..., min_length=1, max_length=255)
     list: TodoList = TodoList.TODO
 
@@ -36,14 +55,24 @@ class TodoCreateRequest(BaseModel):
         return stripped_value
 
 
-class TodoCreateResponse(BaseModel):
+class TodoCreateResponse(TodoActionMetadata):
     success: bool
     item_id: str
     title: str
     list: TodoList
 
 
-class TodoItem(BaseModel):
+class TodoUpdateActionMetadataRequest(TodoActionMetadata):
+    list: TodoList
+
+
+class TodoUpdateActionMetadataResponse(TodoActionMetadata):
+    success: bool
+    item_id: str
+    list: TodoList
+
+
+class TodoItem(TodoActionMetadata):
     item_id: str
     title: str
     list: TodoList
@@ -93,6 +122,7 @@ async def list_todos(
                 list=todo_list,
                 group_id=get_monday_item_group(item).get("id"),
                 group_title=get_monday_item_group(item).get("title"),
+                **get_monday_action_metadata(item),
             )
             for item in monday_items
         )
@@ -110,12 +140,20 @@ async def create_todo(
 
     monday_token = get_monday_token()
     target = get_todo_target(payload.list)
+    column_values = await build_action_column_values(
+        token=monday_token,
+        board_id=target["board_id"],
+        action_group=payload.action_group,
+        action_date=payload.action_date,
+        action=payload.action,
+    )
 
     item_id = await create_monday_item(
         token=monday_token,
         board_id=target["board_id"],
         group_id=target["group_id"],
         title=payload.title,
+        column_values=column_values,
     )
 
     return TodoCreateResponse(
@@ -123,6 +161,51 @@ async def create_todo(
         item_id=item_id,
         title=payload.title,
         list=payload.list,
+        action_group=payload.action_group,
+        action_date=payload.action_date,
+        action=payload.action,
+    )
+
+
+@app.patch("/todos/{item_id}/action-metadata", response_model=TodoUpdateActionMetadataResponse)
+async def update_todo_action_metadata(
+    item_id: str,
+    payload: TodoUpdateActionMetadataRequest,
+    x_api_key: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> TodoUpdateActionMetadataResponse:
+    verify_api_key(x_api_key=x_api_key, authorization=authorization)
+
+    monday_token = get_monday_token()
+    target = get_todo_target(payload.list)
+    column_values = await build_action_column_values(
+        token=monday_token,
+        board_id=target["board_id"],
+        action_group=payload.action_group,
+        action_date=payload.action_date,
+        action=payload.action,
+    )
+
+    if not column_values:
+        raise HTTPException(
+            status_code=422,
+            detail="At least one action metadata field is required.",
+        )
+
+    updated_item_id = await update_monday_item_columns(
+        token=monday_token,
+        board_id=target["board_id"],
+        item_id=item_id,
+        column_values=column_values,
+    )
+
+    return TodoUpdateActionMetadataResponse(
+        success=True,
+        item_id=updated_item_id,
+        list=payload.list,
+        action_group=payload.action_group,
+        action_date=payload.action_date,
+        action=payload.action,
     )
 
 
@@ -179,6 +262,38 @@ def get_monday_item_group(item: dict[str, Any]) -> dict[str, Any]:
     return group
 
 
+def get_monday_action_metadata(item: dict[str, Any]) -> dict[str, str | None]:
+    metadata = {
+        "action_group": None,
+        "action_date": None,
+        "action": None,
+    }
+    column_values = item.get("column_values")
+    if not isinstance(column_values, list):
+        return metadata
+
+    for column_value in column_values:
+        if not isinstance(column_value, dict):
+            continue
+        column = column_value.get("column")
+        if not isinstance(column, dict):
+            continue
+
+        title = column.get("title")
+        text = column_value.get("text")
+        if not text:
+            continue
+
+        if title == ACTION_GROUP_COLUMN_TITLE:
+            metadata["action_group"] = text
+        elif title == ACTION_DATE_COLUMN_TITLE:
+            metadata["action_date"] = text
+        elif title == ACTION_COLUMN_TITLE:
+            metadata["action"] = text
+
+    return metadata
+
+
 def get_todo_target(todo_list: TodoList) -> dict[str, str | None]:
     env_prefix = "TODO" if todo_list == TodoList.TODO else "GS_TODO"
     board_id_variable = f"{env_prefix}_BOARD_ID"
@@ -201,6 +316,10 @@ async def get_monday_items(token: str, board_id: str, limit: int) -> list[dict[s
     query = """
     query GetTodoItems($board_id: ID!, $limit: Int!) {
       boards(ids: [$board_id]) {
+        columns {
+          id
+          title
+        }
         items_page(limit: $limit) {
           items {
             id
@@ -208,6 +327,11 @@ async def get_monday_items(token: str, board_id: str, limit: int) -> list[dict[s
             group {
               id
               title
+            }
+            column_values {
+              id
+              text
+              value
             }
           }
         }
@@ -233,7 +357,25 @@ async def get_monday_items(token: str, board_id: str, limit: int) -> list[dict[s
             detail="Monday.com response did not include board data.",
         )
 
-    items = boards[0].get("items_page", {}).get("items", [])
+    board = boards[0]
+    columns_by_id = {
+        column["id"]: column
+        for column in board.get("columns", [])
+        if isinstance(column, dict) and column.get("id")
+    }
+    items = board.get("items_page", {}).get("items", [])
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        column_values = item.get("column_values")
+        if not isinstance(column_values, list):
+            continue
+        for column_value in column_values:
+            if not isinstance(column_value, dict) or column_value.get("column"):
+                continue
+            column = columns_by_id.get(column_value.get("id"))
+            if column:
+                column_value["column"] = column
     return items
 
 
@@ -242,10 +384,11 @@ async def create_monday_item(
     board_id: str,
     group_id: str | None,
     title: str,
+    column_values: dict[str, Any] | None = None,
 ) -> str:
     query = """
-    mutation CreateTodo($board_id: ID!, $group_id: String, $item_name: String!) {
-      create_item(board_id: $board_id, group_id: $group_id, item_name: $item_name) {
+    mutation CreateTodo($board_id: ID!, $group_id: String, $item_name: String!, $column_values: JSON) {
+      create_item(board_id: $board_id, group_id: $group_id, item_name: $item_name, column_values: $column_values) {
         id
       }
     }
@@ -259,6 +402,7 @@ async def create_monday_item(
                 "board_id": board_id,
                 "group_id": group_id,
                 "item_name": title,
+                "column_values": serialize_column_values(column_values),
             },
         },
     )
@@ -276,6 +420,140 @@ async def create_monday_item(
         )
 
     return str(item_id)
+
+
+async def update_monday_item_columns(
+    token: str,
+    board_id: str,
+    item_id: str,
+    column_values: dict[str, Any],
+) -> str:
+    query = """
+    mutation UpdateTodoColumns($board_id: ID!, $item_id: ID!, $column_values: JSON!) {
+      change_multiple_column_values(board_id: $board_id, item_id: $item_id, column_values: $column_values) {
+        id
+      }
+    }
+    """
+
+    response_body = await execute_monday_graphql(
+        token=token,
+        body={
+            "query": query,
+            "variables": {
+                "board_id": board_id,
+                "item_id": item_id,
+                "column_values": serialize_column_values(column_values),
+            },
+        },
+    )
+
+    updated_item_id = (
+        response_body.get("data", {})
+        .get("change_multiple_column_values", {})
+        .get("id")
+    )
+
+    if not updated_item_id:
+        raise HTTPException(
+            status_code=502,
+            detail="Monday.com response did not include an updated item id.",
+        )
+
+    return str(updated_item_id)
+
+
+async def build_action_column_values(
+    token: str,
+    board_id: str,
+    action_group: str | None,
+    action_date: date | None,
+    action: str | None,
+) -> dict[str, Any]:
+    requested_columns = {
+        ACTION_GROUP_COLUMN_TITLE: action_group,
+        ACTION_DATE_COLUMN_TITLE: action_date,
+        ACTION_COLUMN_TITLE: action,
+    }
+    if all(value is None for value in requested_columns.values()):
+        return {}
+
+    columns_by_title = await get_board_columns_by_title(token=token, board_id=board_id)
+    column_values: dict[str, Any] = {}
+
+    if action_group is not None:
+        column = require_board_column(columns_by_title, ACTION_GROUP_COLUMN_TITLE)
+        column_values[column["id"]] = action_group
+
+    if action_date is not None:
+        column = require_board_column(columns_by_title, ACTION_DATE_COLUMN_TITLE)
+        column_values[column["id"]] = {"date": action_date.isoformat()}
+
+    if action is not None:
+        column = require_board_column(columns_by_title, ACTION_COLUMN_TITLE)
+        column_values[column["id"]] = {"labels": [action]}
+
+    return column_values
+
+
+async def get_board_columns_by_title(
+    token: str,
+    board_id: str,
+) -> dict[str, dict[str, Any]]:
+    query = """
+    query GetBoardColumns($board_id: ID!) {
+      boards(ids: [$board_id]) {
+        columns {
+          id
+          title
+          type
+        }
+      }
+    }
+    """
+
+    response_body = await execute_monday_graphql(
+        token=token,
+        body={
+            "query": query,
+            "variables": {
+                "board_id": board_id,
+            },
+        },
+    )
+
+    boards = response_body.get("data", {}).get("boards", [])
+    if not boards:
+        raise HTTPException(
+            status_code=502,
+            detail="Monday.com response did not include board column data.",
+        )
+
+    columns = boards[0].get("columns", [])
+    return {
+        column["title"]: column
+        for column in columns
+        if isinstance(column, dict) and column.get("title") and column.get("id")
+    }
+
+
+def require_board_column(
+    columns_by_title: dict[str, dict[str, Any]],
+    title: str,
+) -> dict[str, Any]:
+    column = columns_by_title.get(title)
+    if not column:
+        raise HTTPException(
+            status_code=502,
+            detail=f'Monday.com board is missing the "{title}" column.',
+        )
+    return column
+
+
+def serialize_column_values(column_values: dict[str, Any] | None) -> str | None:
+    if not column_values:
+        return None
+    return json.dumps(column_values)
 
 
 async def execute_monday_graphql(token: str, body: dict[str, Any]) -> dict[str, Any]:
