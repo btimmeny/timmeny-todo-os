@@ -45,6 +45,8 @@ Set these environment variables:
 - `MONDAY_API_TOKEN`: Monday.com API token.
 - `TODO_BOARD_ID`: Monday.com board id where todos should be created.
 
+Use `.env.example` as the local template.
+
 ## Local Development
 
 This project uses Python 3.12.
@@ -58,6 +60,13 @@ uvicorn main:app --reload
 
 Then visit `http://localhost:8000/health`.
 
+Run tests with:
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
 ## Railway
 
 Railway uses `railway.json` to start the app with Uvicorn:
@@ -67,6 +76,18 @@ uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
 ```
 
 Add `MONDAY_API_TOKEN` and `TODO_BOARD_ID` as Railway environment variables before calling `POST /todos`.
+
+Production health check:
+
+```bash
+curl https://timmeny-os-production.up.railway.app/health
+```
+
+Production todo test:
+
+```bash
+curl -X POST https://timmeny-os-production.up.railway.app/todos -H "Content-Type: application/json" -d '{"title":"TEST - Railway Deploy"}'
+```
 
 ## Intent
 
@@ -84,7 +105,9 @@ Timmeny OS should make recurring work easier to trust and easier to improve. The
 
 - `main.py` contains the FastAPI app.
 - `requirements.txt` defines the Python dependencies.
+- `requirements-dev.txt` defines local test dependencies.
 - `railway.json` configures Railway deployment.
+- `tests/` covers the current API surface.
 - `docs/charter.md` defines the initial scope, values, and near-term direction.
 
 ## Next Steps
